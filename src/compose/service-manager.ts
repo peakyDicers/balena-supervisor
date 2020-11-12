@@ -61,10 +61,10 @@ export const getAll = async (
 ): Promise<Service[]> => {
 	const filterLabels = ['supervised'].concat(extraLabelFilters);
 	const containers = await listWithBothLabels(filterLabels);
-
 	const services = await Bluebird.map(containers, async (container) => {
 		try {
-			const serviceInspect = await docker.getContainer(container.Id).inspect();
+			const containerInfo = docker.getContainer(container.Id);
+			const serviceInspect = await containerInfo.inspect();
 			const service = Service.fromDockerContainer(serviceInspect);
 			// We know that the containerId is set below, because `fromDockerContainer`
 			// always sets it
@@ -133,10 +133,12 @@ export async function getByDockerContainerId(
 	containerId: string,
 ): Promise<Service | null> {
 	const container = await docker.getContainer(containerId).inspect();
-	if (
-		container.Config.Labels['io.balena.supervised'] == null &&
-		container.Config.Labels['io.resin.supervised'] == null
-	) {
+
+	const { Labels } = container.Config;
+	const isSupervised =
+		!!Labels['io.balena.supervised'] || !!Labels['io.resin.supervised'];
+
+	if (!isSupervised) {
 		return null;
 	}
 	return Service.fromDockerContainer(container);
