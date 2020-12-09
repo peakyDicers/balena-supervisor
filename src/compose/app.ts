@@ -5,6 +5,7 @@ import * as path from 'path';
 import Network from './network';
 import Volume from './volume';
 import Service from './service';
+import Overlay from './overlay';
 
 import * as imageManager from './images';
 import type { Image } from './images';
@@ -37,6 +38,7 @@ export interface AppConstructOpts {
 	source?: string;
 	uuid?: string;
 	services: Service[];
+	overlays: Overlay[];
 	volumes: Dictionary<Volume>;
 	networks: Dictionary<Network>;
 }
@@ -66,6 +68,7 @@ export class App {
 	// Services are stored as an array, as at any one time we could have more than one
 	// service for a single service ID running (for example handover)
 	public services: Service[];
+	public overlays: Overlay[];
 	public networks: Dictionary<Network>;
 	public volumes: Dictionary<Volume>;
 
@@ -77,6 +80,7 @@ export class App {
 		this.releaseVersion = opts.releaseVersion;
 		this.source = opts.source;
 		this.services = opts.services;
+		this.overlays = opts.overlays;
 		this.volumes = opts.volumes;
 		this.networks = opts.networks;
 		this.uuid = opts.uuid;
@@ -100,6 +104,14 @@ export class App {
 		// Check to see if we need to polyfill in some "new" data for legacy services
 		this.migrateLegacy(target);
 
+		let steps: CompositionStep[] = [];
+
+		// TODO: only do this if the app has `isHost` set to true
+		steps = this.generateStepsForOverlays(target, state);
+		if (steps.length > 0) {
+			return steps;
+		}
+
 		// Check for changes in the volumes. We don't remove any volumes until we remove an
 		// entire app
 		const volumeChanges = this.compareComponents(
@@ -112,8 +124,6 @@ export class App {
 			target.networks,
 			true,
 		);
-
-		let steps: CompositionStep[] = [];
 
 		// Any services which have died get a remove step
 		for (const service of this.services) {
@@ -463,6 +473,61 @@ export class App {
 		return steps;
 	}
 
+	private generateStepsForOverlays(
+		target: App,
+		context: UpdateState,
+	): CompositionStep[] {
+		// Get all overlays on target state that need downloading
+		const needDownload = target.overlays.filter(
+			(overlay) =>
+				!context.availableImages.some(
+					(image) =>
+						image.dockerImageId === overlay.dockerImageId ||
+						imageManager.isSameImage(image, { name: overlay.imageName! }),
+				),
+		);
+
+		const fetching = needDownload.filter((overlay) =>
+			context.downloading.includes(overlay.imageId),
+		);
+		const fetchRequired = needDownload.filter(
+			(overlay) => !context.downloading.includes(overlay.imageId),
+		);
+
+		if (fetchRequired.length > 0) {
+			// If fetch is required, return immediately
+			return fetchRequired.map((overlay) =>
+				generateStep('fetch', {
+					image: imageManager.imageFromService(overlay),
+					serviceName: overlay.serviceName!,
+				}),
+			);
+		} else if (fetching.length > 0) {
+			// If fetch steps are in progress, generate noop steps until
+			// fetching is done
+			return [generateStep('noop', {})];
+		}
+
+		const currentImageNames = Object.keys(_.keyBy(this.overlays, 'imageName'));
+		const targetImageNames = Object.keys(_.keyBy(target.overlays, 'imageName'));
+
+		const toBeRemoved = _.difference(currentImageNames, targetImageNames);
+		const toBeInstalled = _.difference(targetImageNames, currentImageNames);
+
+		// Since the updateOverlays needs to be given the target state , we don't care about
+		// individual changes, only if there are differences
+		// overlays don't have any special configuration so no update is needed
+		if (toBeRemoved.length > 0 || toBeInstalled.length > 0) {
+			return [
+				generateStep('updateOverlays', {
+					target: target.overlays,
+				}),
+			];
+		}
+
+		return [];
+	}
+
 	private generateStepsForService(
 		{ current, target }: ChangingPair<Service>,
 		context: {
@@ -808,7 +873,7 @@ export class App {
 
 		// In the db, the services are an array, but here we switch them to an
 		// object so that they are consistent
-		const services: Service[] = await Promise.all(
+		const allServices: Service[] = await Promise.all(
 			(JSON.parse(app.services) ?? [])
 				.filter(
 					// Ignore non-services on the target state as we don't know
@@ -816,7 +881,7 @@ export class App {
 					(svc: ServiceComposeConfig) =>
 						!svc.labels ||
 						!svc.labels['io.balena.image.class'] ||
-						svc.labels['io.balena.image.class'] === 'service',
+						svc.labels['io.balena.image.class'] !== 'fileset',
 				)
 				.filter(
 					// Ignore images that need to be installed somewhere different
@@ -857,6 +922,11 @@ export class App {
 				}),
 		);
 
+		const services = allServices.filter((svc) => svc.imageClass === 'service');
+		const overlays = allServices
+			.filter((svc) => svc.imageClass === 'overlay')
+			.map((svc) => Overlay.fromService(svc, app.name));
+
 		return new App(
 			{
 				appId: app.appId,
@@ -869,6 +939,7 @@ export class App {
 				source: app.source,
 				uuid: app.uuid,
 				services,
+				overlays,
 				volumes,
 				networks,
 			},
