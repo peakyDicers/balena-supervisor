@@ -813,8 +813,24 @@ export class App {
 		// In the db, the services are an array, but here we switch them to an
 		// object so that they are consistent
 		const services: Service[] = await Promise.all(
-			(JSON.parse(app.services) ?? []).map(
-				async (svc: ServiceComposeConfig) => {
+			(JSON.parse(app.services) ?? [])
+				.filter(
+					// Ignore non-services on the target state as we don't know
+					// what to do with them yet
+					(svc: ServiceComposeConfig) =>
+						!svc.labels ||
+						!svc.labels['io.balena.image.class'] ||
+						svc.labels['io.balena.image.class'] === 'service',
+				)
+				.filter(
+					// Ignore images that need to be installed somewhere different
+					// than the data directory
+					(svc: ServiceComposeConfig) =>
+						!svc.labels ||
+						!svc.labels['io.balena.image.store'] ||
+						svc.labels['io.balena.image.store'] === 'data',
+				)
+				.map(async (svc: ServiceComposeConfig) => {
 					// Try to fill the image id if the image is downloaded
 					let imageInfo: ImageInspectInfo | undefined;
 					try {
@@ -836,8 +852,7 @@ export class App {
 						svc,
 						(thisSvcOpts as unknown) as DeviceMetadata,
 					);
-				},
-			),
+				}),
 		);
 
 		return new App(
