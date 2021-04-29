@@ -26,6 +26,7 @@ import { checkTruthy, checkString } from '../lib/validation';
 import { ServiceComposeConfig, DeviceMetadata } from './types/service';
 import { ImageInspectInfo } from 'dockerode';
 import { pathExistsOnHost } from '../lib/fs-utils';
+import { getSupervisorMetadata } from '../lib/supervisor-metadata';
 
 export interface AppConstructOpts {
 	appId: number;
@@ -810,6 +811,8 @@ export class App {
 			...opts,
 		};
 
+		const supervisorMeta = await getSupervisorMetadata();
+
 		// In the db, the services are an array, but here we switch them to an
 		// object so that they are consistent
 		const services: Service[] = await Promise.all(
@@ -829,6 +832,12 @@ export class App {
 						!svc.labels ||
 						!svc.labels['io.balena.image.store'] ||
 						svc.labels['io.balena.image.store'] === 'data',
+				)
+				.filter(
+					// Ignore the supervisor service itself from the target state for now
+					(svc: ServiceComposeConfig) =>
+						app.uuid !== supervisorMeta.uuid ||
+						svc.serviceName !== supervisorMeta.serviceName,
 				)
 				.map(async (svc: ServiceComposeConfig) => {
 					// Try to fill the image id if the image is downloaded
