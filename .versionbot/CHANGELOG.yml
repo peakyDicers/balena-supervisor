@@ -1,4 +1,17 @@
 - commits:
+    - subject: Refactor README to include more specific PR documentation
+      hash: d3ddb4e2530fcf11b95dbdd4505ee95a0713c70d
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Miguel Casqueira <miguel@balena.io>
+        signed-off-by: Miguel Casqueira <miguel@balena.io>
+      author: Miguel Casqueira
+      nested: []
+  version: 12.6.4
+  date: 2021-05-05T23:55:58.499Z
+- commits:
     - subject: Added configurations.md to document all configurable vars
       hash: 07a0344dc6ac15a67513080c63dffe0d6b811ebf
       body: ''
