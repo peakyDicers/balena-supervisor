@@ -1,4 +1,17 @@
 - commits:
+    - subject: Fix parsing driver_opts from compose to docker network creation
+      hash: 7632f2190ef80fdf1fdd1f600dcbcd15c4de970c
+      body: ''
+      footer:
+        Change-Type: patch
+        change-type: patch
+        Signed-off-by: Miguel Casqueira <miguel@balena.io>
+        signed-off-by: Miguel Casqueira <miguel@balena.io>
+      author: Miguel Casqueira
+      nested: []
+  version: 12.6.6
+  date: 2021-05-06T15:06:04.161Z
+- commits:
     - subject: Update balena-register-device and send extra info at provision time
       hash: 9e52bb33ac931a035b4cd0fd80173bf10db771c0
       body: |
