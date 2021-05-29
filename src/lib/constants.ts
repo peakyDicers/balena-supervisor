@@ -9,7 +9,8 @@ const constants = {
 	rootMountPoint,
 	databasePath:
 		checkString(process.env.DATABASE_PATH) || '/data/database.sqlite',
-	containerId: checkString(process.env.SUPERVISOR_CONTAINER_ID) || undefined,
+	containerId:
+		checkString(process.env.SUPERVISOR_CONTAINER_ID) || 'resin_supervisor',
 	dockerSocket: process.env.DOCKER_SOCKET || '/var/run/docker.sock',
 
 	// In-container location for docker socket
@@ -70,6 +71,10 @@ const constants = {
 	// a random jitter)
 	maxApiJitterDelay: 60 * 1000,
 	validRedsocksProxyTypes: ['socks4', 'socks5', 'http-connect', 'http-relay'],
+
+	// supervisor metadata from container
+	supervisorUuid: process.env.SUPERVISOR_APP_UUID || null,
+	supervisorServiceName: process.env.SUPERVISOR_SERVICE_NAME || null,
 };
 
 if (process.env.DOCKER_HOST == null) {

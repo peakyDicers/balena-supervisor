@@ -5,6 +5,7 @@ import * as path from 'path';
 import Network from './network';
 import Volume from './volume';
 import Service from './service';
+import Overlay from './overlay';
 
 import * as imageManager from './images';
 import type { Image } from './images';
@@ -26,15 +27,18 @@ import { checkTruthy, checkString } from '../lib/validation';
 import { ServiceComposeConfig, DeviceMetadata } from './types/service';
 import { ImageInspectInfo } from 'dockerode';
 import { pathExistsOnHost } from '../lib/fs-utils';
+import { getSupervisorService } from './supervisor';
 
 export interface AppConstructOpts {
 	appId: number;
 	appName?: string;
 	commit?: string;
 	releaseId?: number;
+	releaseVersion?: string;
 	source?: string;
-
+	uuid?: string;
 	services: Service[];
+	overlays: Overlay[];
 	volumes: Dictionary<Volume>;
 	networks: Dictionary<Network>;
 }
@@ -57,11 +61,14 @@ export class App {
 	public appName?: string;
 	public commit?: string;
 	public releaseId?: number;
+	public releaseVersion?: string;
 	public source?: string;
+	public uuid?: string;
 
 	// Services are stored as an array, as at any one time we could have more than one
 	// service for a single service ID running (for example handover)
 	public services: Service[];
+	public overlays: Overlay[];
 	public networks: Dictionary<Network>;
 	public volumes: Dictionary<Volume>;
 
@@ -70,16 +77,21 @@ export class App {
 		this.appName = opts.appName;
 		this.commit = opts.commit;
 		this.releaseId = opts.releaseId;
+		this.releaseVersion = opts.releaseVersion;
 		this.source = opts.source;
 		this.services = opts.services;
+		this.overlays = opts.overlays;
 		this.volumes = opts.volumes;
 		this.networks = opts.networks;
+		this.uuid = opts.uuid;
 
 		if (this.networks.default == null && isTargetState) {
 			// We always want a default network
 			this.networks.default = Network.fromComposeObject(
 				'default',
 				opts.appId,
+				// Target state always has a uuid set
+				opts.uuid!,
 				{},
 			);
 		}
@@ -91,6 +103,14 @@ export class App {
 	): CompositionStep[] {
 		// Check to see if we need to polyfill in some "new" data for legacy services
 		this.migrateLegacy(target);
+
+		let steps: CompositionStep[] = [];
+
+		// TODO: only do this if the app has `isHost` set to true
+		steps = this.generateStepsForOverlays(target, state);
+		if (steps.length > 0) {
+			return steps;
+		}
 
 		// Check for changes in the volumes. We don't remove any volumes until we remove an
 		// entire app
@@ -104,8 +124,6 @@ export class App {
 			target.networks,
 			true,
 		);
-
-		let steps: CompositionStep[] = [];
 
 		// Any services which have died get a remove step
 		for (const service of this.services) {
@@ -162,12 +180,12 @@ export class App {
 			),
 		);
 
+		// TODO: remove this when the updateCommit table disappears
 		if (
 			steps.length === 0 &&
 			target.commit != null &&
 			this.commit !== target.commit
 		) {
-			// TODO: The next PR should change this to support multiapp commit values
 			steps.push(
 				generateStep('updateCommit', {
 					target: target.commit,
@@ -266,6 +284,10 @@ export class App {
 		removePairs: Array<ChangingPair<Service>>;
 		updatePairs: Array<ChangingPair<Service>>;
 	} {
+		// TODO: This is comparing by service id, so changing environment will forcibly
+		// trigger a reinstall of the services, an since image names are also
+		// different it will also trigger a fetch
+		// comparison should probably be done using serviceName as with docker compose
 		const currentByServiceId = _.keyBy(current, 'serviceId');
 		const targetByServiceId = _.keyBy(target, 'serviceId');
 
@@ -449,6 +471,61 @@ export class App {
 		}
 
 		return steps;
+	}
+
+	private generateStepsForOverlays(
+		target: App,
+		context: UpdateState,
+	): CompositionStep[] {
+		// Get all overlays on target state that need downloading
+		const needDownload = target.overlays.filter(
+			(overlay) =>
+				!context.availableImages.some(
+					(image) =>
+						image.dockerImageId === overlay.dockerImageId ||
+						imageManager.isSameImage(image, { name: overlay.imageName! }),
+				),
+		);
+
+		const fetching = needDownload.filter((overlay) =>
+			context.downloading.includes(overlay.imageId),
+		);
+		const fetchRequired = needDownload.filter(
+			(overlay) => !context.downloading.includes(overlay.imageId),
+		);
+
+		if (fetchRequired.length > 0) {
+			// If fetch is required, return immediately
+			return fetchRequired.map((overlay) =>
+				generateStep('fetch', {
+					image: imageManager.imageFromService(overlay),
+					serviceName: overlay.serviceName!,
+				}),
+			);
+		} else if (fetching.length > 0) {
+			// If fetch steps are in progress, generate noop steps until
+			// fetching is done
+			return [generateStep('noop', {})];
+		}
+
+		const currentImageNames = Object.keys(_.keyBy(this.overlays, 'imageName'));
+		const targetImageNames = Object.keys(_.keyBy(target.overlays, 'imageName'));
+
+		const toBeRemoved = _.difference(currentImageNames, targetImageNames);
+		const toBeInstalled = _.difference(targetImageNames, currentImageNames);
+
+		// Since the updateOverlays needs to be given the target state , we don't care about
+		// individual changes, only if there are differences
+		// overlays don't have any special configuration so no update is needed
+		if (toBeRemoved.length > 0 || toBeInstalled.length > 0) {
+			return [
+				generateStep('updateOverlays', {
+					target: target.overlays,
+				}),
+			];
+		}
+
+		return [];
 	}
 
 	private generateStepsForService(
@@ -751,13 +828,13 @@ export class App {
 			if (conf.labels == null) {
 				conf.labels = {};
 			}
-			return Volume.fromComposeObject(name, app.appId, conf);
+			return Volume.fromComposeObject(name, app.appId, app.uuid, conf);
 		});
 
 		const networks = _.mapValues(
 			JSON.parse(app.networks) ?? {},
 			(conf, name) => {
-				return Network.fromComposeObject(name, app.appId, conf ?? {});
+				return Network.fromComposeObject(name, app.appId, app.uuid, conf ?? {});
 			},
 		);
 
@@ -792,11 +869,35 @@ export class App {
 			...opts,
 		};
 
+		const supervisor = await getSupervisorService();
+
 		// In the db, the services are an array, but here we switch them to an
 		// object so that they are consistent
-		const services: Service[] = await Promise.all(
-			(JSON.parse(app.services) ?? []).map(
-				async (svc: ServiceComposeConfig) => {
+		const allServices: Service[] = await Promise.all(
+			(JSON.parse(app.services) ?? [])
+				.filter(
+					// Ignore non-services on the target state as we don't know
+					// what to do with them yet
+					(svc: ServiceComposeConfig) =>
+						!svc.labels ||
+						!svc.labels['io.balena.image.class'] ||
+						svc.labels['io.balena.image.class'] !== 'fileset',
+				)
+				.filter(
+					// Ignore images that need to be installed somewhere different
+					// than the data directory
+					(svc: ServiceComposeConfig) =>
+						!svc.labels ||
+						!svc.labels['io.balena.image.store'] ||
+						svc.labels['io.balena.image.store'] === 'data',
+				)
+				.filter(
+					// Ignore the supervisor service itself from the target state for now
+					(svc: ServiceComposeConfig) =>
+						app.uuid !== supervisor.uuid ||
+						svc.serviceName !== supervisor.serviceName,
+				)
+				.map(async (svc: ServiceComposeConfig) => {
 					// Try to fill the image id if the image is downloaded
 					let imageInfo: ImageInspectInfo | undefined;
 					try {
@@ -818,17 +919,27 @@ export class App {
 						svc,
 						(thisSvcOpts as unknown) as DeviceMetadata,
 					);
-				},
-			),
+				}),
 		);
+
+		const services = allServices.filter((svc) => svc.imageClass === 'service');
+		const overlays = allServices
+			.filter((svc) => svc.imageClass === 'overlay')
+			.map((svc) => Overlay.fromService(svc, app.name));
+
 		return new App(
 			{
 				appId: app.appId,
 				commit: app.commit,
 				releaseId: app.releaseId,
+				// Release version defaults to commit if no version
+				// has been defined by the user
+				releaseVersion: app.releaseVersion ?? app.commit,
 				appName: app.name,
 				source: app.source,
+				uuid: app.uuid,
 				services,
+				overlays,
 				volumes,
 				networks,
 			},
