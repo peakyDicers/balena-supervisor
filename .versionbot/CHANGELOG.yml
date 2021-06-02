@@ -1,18 +1,78 @@
 - commits:
-    - subject: Prevent a recursive loop when reporting current state
-      hash: 55a344dceb826c5655067e6006e006846778b5e9
-      body: ''
+    - subject: Add support for host overlays
+      hash: b9df26ab175ba43bd4ef9e6fc232f401fbd65b7a
+      body: >
+        This commit adds support for host overlay services on the target state
+
+        endpoint, identified with labels `io.balena.image.class: overlay`
+
+
+        When host overlay configuration changes are detected the supervisor will
+
+        perform the required fetch steps first and then pass the target state to
+        the
+
+        `updata-data-store` script on the host.
+
+
+        Future versions of the supervisor will perform the install steps instead
+
+        of triggering the script
       footer:
-        Closes: '#1673'
-        closes: '#1673'
-        Change-type: patch
-        change-type: patch
-        Signed-off-by: Miguel Casqueira <miguel@balena.io>
-        signed-off-by: Miguel Casqueira <miguel@balena.io>
-      author: Miguel Casqueira
+        Change-type: minor
+        change-type: minor
+        Depends-on: '#1674'
+        depends-on: '#1674'
+      author: Cameron Diver
       nested: []
-  version: 12.8.3
-  date: 2021-05-28T20:23:03.757Z
+    - subject: Support app uuids and release version on target state
+      hash: 97eb22c74dfa5f6ef3306d14e3ddc591f19be859
+      body: >
+        The new v3 device state endpoint uses app uuids as the identifier for
+        the
+
+        app and adds releaseVersion and isHost as optional attributes of an app.
+
+        The v3 target state endpoint is also a tri-app target state, including
+
+        the supervisor and host app in addition to the user app.
+
+
+        `releaseVersion` will eventually become the main identifier of a release
+
+        and `isHost` will allow to identify the host app on the target state
+        which
+
+        will indicate the supervisor that is an app allowed to install services
+
+        and overlays on the root partition.
+
+
+        For now this change still uses environment dependent ids (serviceId,
+
+        imageId, releaseId) for comparing
+
+        current and target state and for reporting current state of releases and
+
+        images back to the cloud, but that should be changing soon.
+
+
+        We store the uuid and releaseVersion on the individual docker components
+        so that when
+
+        building a current state, we can match them with the target state.
+
+
+        This is a breaking change
+      footer:
+        Change-type: major
+        change-type: major
+        Depends-on: '#1676'
+        depends-on: '#1676'
+      author: Cameron Diver
+      nested: []
+  version: 13.0.0
+  date: 2021-06-02T14:50:32.041Z
 - commits:
     - subject: Revert multiline bullet points in notes
       hash: 5524b5e986d448110c19a226f38e984e1d699f5d
