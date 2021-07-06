@@ -1,4 +1,15 @@
 - commits:
+    - subject: 'patch: Live push starts node with `--inspect`'
+      hash: 35d187787c1e82a84447b6bf396037a701e70ccd
+      body: ''
+      footer:
+        Signed-off-by: Thomas Manning <thomasm@balena.io>
+        signed-off-by: Thomas Manning <thomasm@balena.io>
+      author: Thomas Manning
+      nested: []
+  version: 12.9.2
+  date: 2021-07-06T09:38:21.876Z
+- commits:
     - subject: 'Clarify that /v2/applications/:appId/stop-service is temporary'
       hash: 3bc3274001132d4e2eb9ecdda9bd6dd8b372ae4d
       body: ''
