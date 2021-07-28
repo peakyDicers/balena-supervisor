@@ -469,7 +469,7 @@ describe('device-state/current-state', () => {
 		};
 
 		before(() => {
-			stub(deviceState, 'getStatus').resolves({});
+			stub(deviceState, 'getCurrentForReport').resolves({});
 			stub(sysInfo, 'getSystemMetrics').resolves();
 			stub(sysInfo, 'getSystemChecks').resolves();
 			stub(eventTracker, 'track');
@@ -487,7 +487,7 @@ describe('device-state/current-state', () => {
 		});
 
 		after(() => {
-			(deviceState.getStatus as SinonStub).restore();
+			(deviceState.getCurrentForReport as SinonStub).restore();
 			(sysInfo.getSystemMetrics as SinonStub).restore();
 			(sysInfo.getSystemChecks as SinonStub).restore();
 			(eventTracker.track as SinonStub).restore();

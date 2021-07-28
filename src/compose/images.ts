@@ -405,7 +405,14 @@ export async function cleanImageData(): Promise<void> {
 	await db.models('image').del().whereIn('id', ids);
 }
 
-export const getStatus = async () => {
+/**
+ * This and other current state methods will be replaced by ApplicationManager.getState, at which
+ * point the only place this will be used will be in the API endpoints
+ * once, the API moves to v3 or we update the endpoints to return uuids, we will
+ *  be able to get rid of this
+ *  @deprecated
+ */
+export const getLegacyState = async () => {
 	const images = (await getAvailable()).map((img) => ({
 		...img,
 		status: 'Downloaded' as Image['status'],
