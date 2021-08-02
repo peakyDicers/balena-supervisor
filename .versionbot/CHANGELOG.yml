@@ -1,4 +1,21 @@
 - commits:
+    - subject: Force remove container on Docker daemon 409
+      hash: 8cee5c7df953865e00359f703bd93ddd370b7872
+      body: |
+        If removeContainer is true, force the removal. However,
+        this doesn't cover a 409 case when removeContainer is false.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Relates-to: '#1754'
+        relates-to: '#1754'
+        Signed-off-by: Christina Wang <christina@balena.io>
+        signed-off-by: Christina Wang <christina@balena.io>
+      author: Christina Wang
+      nested: []
+  version: 12.10.1
+  date: 2021-08-02T09:40:13.502Z
+- commits:
     - subject: 'Remove comparison based on image, release, and service ids'
       hash: b67f94802dd8c2e890121f6ca82eda8dff2c051c
       body: >
