@@ -23,15 +23,20 @@ import {
 import { docker } from '../lib/docker-utils';
 import { exec, pathExistsOnHost, mkdirp } from '../lib/fs-utils';
 import { log } from '../lib/supervisor-console';
-import type { AppsJsonFormat, TargetApp, TargetState } from '../types/state';
+import {
+	AppsJsonFormat,
+	TargetApp,
+	TargetState,
+	TargetRelease,
+	TargetService,
+} from '../types';
 import type { DatabaseApp } from '../device-state/target-state-cache';
-import { ShortString } from '../types';
 
 export const defaultLegacyVolume = () => 'resin-data';
 
-export function singleToMulticontainerApp(
+function singleToMulticontainerApp(
 	app: Dictionary<any>,
-): TargetApp & { appId: string } {
+): TargetApp & { uuid: string } {
 	const environment: Dictionary<string> = {};
 	for (const key in app.env) {
 		if (!/^RESIN_/.test(key)) {
@@ -40,18 +45,24 @@ export function singleToMulticontainerApp(
 	}
 
 	const { appId } = app;
-	const conf = app.config != null ? app.config : {};
-	const newApp: TargetApp & { appId: string } = {
-		appId: appId.toString(),
-		commit: app.commit,
-		name: app.name,
-		releaseId: 1,
+
+	const release: TargetRelease = {
+		id: 1,
 		networks: {},
 		volumes: {},
 		services: {},
 	};
+	const conf = app.config != null ? app.config : {};
+	const newApp: TargetApp & { uuid: string } = {
+		id: appId,
+		uuid: 'user-app',
+		name: app.name,
+		releases: {
+			[app.commit]: release,
+		},
+	};
 	const defaultVolume = exports.defaultLegacyVolume();
-	newApp.volumes[defaultVolume] = {};
+	release.volumes[defaultVolume] = {};
 	const updateStrategy =
 		conf['RESIN_SUPERVISOR_UPDATE_STRATEGY'] != null
 			? conf['RESIN_SUPERVISOR_UPDATE_STRATEGY']
@@ -64,15 +75,10 @@ export function singleToMulticontainerApp(
 		conf['RESIN_APP_RESTART_POLICY'] != null
 			? conf['RESIN_APP_RESTART_POLICY']
 			: 'always';
-	newApp.services = {
-		// Disable the next line, as this *has* to be a string
-		// tslint:disable-next-line
-		'1': {
-			appId,
-			serviceName: 'main' as ShortString,
-			imageId: 1,
-			commit: app.commit,
-			releaseId: 1,
+	release.services = {
+		main: {
+			id: 1,
+			image_id: 1,
 			image: app.imageId,
 			privileged: true,
 			networkMode: 'host',
@@ -104,7 +110,10 @@ export function convertLegacyAppsJson(appsArray: any[]): AppsJsonFormat {
 		{},
 	);
 
-	const apps = _.keyBy(_.map(appsArray, singleToMulticontainerApp), 'appId');
+	const apps = _.keyBy(
+		_.map(appsArray, singleToMulticontainerApp),
+		'uuid',
+	) as Dictionary<TargetApp>;
 	return { apps, config: deviceConfig } as AppsJsonFormat;
 }
 
@@ -129,7 +138,7 @@ export async function normaliseLegacyDatabase() {
 	}
 
 	for (const app of apps) {
-		let services: Array<TargetApp['services']['']>;
+		let services: TargetService[];
 
 		try {
 			services = JSON.parse(app.services);
@@ -165,6 +174,9 @@ export async function normaliseLegacyDatabase() {
 					contains__image: {
 						$expand: 'image',
 					},
+					belongs_to__application: {
+						$select: ['uuid'],
+					},
 				},
 			},
 		});
@@ -176,8 +188,9 @@ export async function normaliseLegacyDatabase() {
 			await db.models('app').where({ appId: app.appId }).del();
 		}
 
-		// We need to get the release.id, serviceId, image.id and updated imageUrl
+		// We need to get the app.uuid, release.id, serviceId, image.id and updated imageUrl
 		const release = releases[0];
+		const uuid = release.belongs_to__application[0].uuid;
 		const image = release.contains__image[0].image[0];
 		const serviceId = image.is_a_build_of__service.__id;
 		const imageUrl = !image.content_hash
@@ -217,10 +230,12 @@ export async function normaliseLegacyDatabase() {
 					await trx('image').insert({
 						name: imageUrl,
 						appId: app.appId,
+						appUuid: uuid,
 						serviceId,
 						serviceName: service.serviceName,
 						imageId: image.id,
 						releaseId: release.id,
+						commit: app.commit,
 						dependent: 0,
 						dockerImageId: imageFromDocker.Id,
 					});
@@ -234,12 +249,16 @@ export async function normaliseLegacyDatabase() {
 				Object.assign(app, {
 					services: JSON.stringify([
 						Object.assign(service, {
+							appId: app.appId,
+							appUuid: uuid,
 							image: imageUrl,
-							serviceID: serviceId,
+							serviceId,
 							imageId: image.id,
 							releaseId: release.id,
+							commit: app.commit,
 						}),
 					]),
+					uuid,
 					releaseId: release.id,
 				});
 
@@ -288,6 +307,7 @@ export async function loadBackupFromMigration(
 			throw new BackupError('No appId in target state');
 		}
 
+		// TODO
 		const volumes = targetState.local?.apps?.[appId].volumes;
 
 		const backupPath = path.join(constants.rootMountPoint, 'mnt/data/backup');
