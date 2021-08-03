@@ -482,19 +482,9 @@ export async function setTarget(target: TargetState, localSource?: boolean) {
 			await deviceConfig.setTarget(target.local.config, trx);
 
 			if (localSource || apiEndpoint == null || apiEndpoint === '') {
-				await applicationManager.setTarget(
-					target.local.apps,
-					target.dependent,
-					'local',
-					trx,
-				);
+				await applicationManager.setTarget(target.local.apps, 'local', trx);
 			} else {
-				await applicationManager.setTarget(
-					target.local.apps,
-					target.dependent,
-					apiEndpoint,
-					trx,
-				);
+				await applicationManager.setTarget(target.local.apps, apiEndpoint, trx);
 			}
 		});
 	});
