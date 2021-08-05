@@ -1,4 +1,50 @@
 - commits:
+    - subject: 'api-keys: Remove os variant parameter for authentication check'
+      hash: 3adb0b5a93af3d07dada00b9dc1930909326951f
+      body: |
+        The current code authenticates unmanaged production devices which makes
+        no sense. Unmanaged devices do not need to authenticate with the API.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Alex Gonzalez <alexg@balena.io>
+        signed-off-by: Alex Gonzalez <alexg@balena.io>
+      author: Alex Gonzalez
+      nested: []
+    - subject: 'os-release: Use developmentMode to ascertain OS variant in new releases'
+      hash: d6312c8d14c0ddcc71ec20ca9d4cefaaff83cbec
+      body: |
+        Newer BalenaOS releases have replaced OS variants for a developmentMode
+        configuration setting. This commit uses this variable to set the OS
+        variant in the absence of `VARIANT_ID` from the os-release file.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Alex Gonzalez <alexg@balena.io>
+        signed-off-by: Alex Gonzalez <alexg@balena.io>
+      author: Alex Gonzalez
+      nested: []
+    - subject: 'config: Add developmentMode to schema'
+      hash: d99164f9385dd30a60dc401f5558298a07d46b2f
+      body: >
+        Add a `developmentMode` configuration variable to the schema. Do not
+        expose
+
+        this on the device target state until local key-based authentication is
+
+        sorted.
+      footer:
+        Relates-to: 'https://jel.ly.fish/e9525e9e-aa74-478c-b931-52951c679f78'
+        relates-to: 'https://jel.ly.fish/e9525e9e-aa74-478c-b931-52951c679f78'
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Alex Gonzalez <alexg@balena.io>
+        signed-off-by: Alex Gonzalez <alexg@balena.io>
+      author: Alex Gonzalez
+      nested: []
+  version: 12.10.3
+  date: 2021-08-05T13:27:20.760Z
+- commits:
     - subject: Removed fire emoji prefix for firewall logs.
       hash: 30c728fae23ee66f3c1612736bb0c300f0b0762d
       body: ''
