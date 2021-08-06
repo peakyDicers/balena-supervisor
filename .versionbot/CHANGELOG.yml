@@ -1,4 +1,13 @@
 - commits:
+    - subject: 'patch: Update fleet terminology for application update locks'
+      hash: bc7be4f62b089032810b2c114248f2dab02ba74b
+      body: ''
+      footer: {}
+      author: Vipul Gupta
+      nested: []
+  version: 12.10.3
+  date: 2021-08-06T12:22:15.375Z
+- commits:
     - subject: Removed fire emoji prefix for firewall logs.
       hash: 30c728fae23ee66f3c1612736bb0c300f0b0762d
       body: ''
