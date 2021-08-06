@@ -1,9 +1,9 @@
 ---
-title: Application update locks
-excerpt: Locking application updates on your balenaOS devices
+title: Fleet update locks
+excerpt: Locking fleet updates on your balenaOS devices
 ---
 
-# Application update locks
+# Fleet update locks
 
 Locking updates means that the balena supervisor will not be able to kill your application. This is meant to be used at critical sections of your code where you don't want to be interrupted, or to ensure that updates are only installed at certain times.
 
