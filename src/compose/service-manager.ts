@@ -103,14 +103,21 @@ export async function get(service: Service) {
 	return services[0];
 }
 
-export async function getStatus() {
+/**
+ * This and other state methods will be replaced by ApplicationManager.getState, at which
+ * point the only place this will be used will be in the API endpoints
+ * once, the API moves to v3 or we update the endpoints to return uuids, we will
+ * be able to get rid of this
+ * @deprecated
+ */
+export async function getLegacyState() {
 	const services = await getAll();
 	const status = _.clone(volatileState);
 
 	for (const service of services) {
 		if (service.containerId == null) {
 			throw new InternalInconsistencyError(
-				`containerId not defined in ServiceManager.getStatus: ${service}`,
+				`containerId not defined in ServiceManager.getLegacyServicesState: ${service}`,
 			);
 		}
 		if (status[service.containerId] == null) {
@@ -242,6 +249,7 @@ export async function create(service: Service) {
 			throw e;
 		}
 
+		// TODO: this seems a bit late to be checking this
 		const deviceName = await config.get('name');
 		if (!isValidDeviceName(deviceName)) {
 			throw new Error(

@@ -4,6 +4,8 @@ import { EventEmitter } from 'events';
 import * as express from 'express';
 import * as _ from 'lodash';
 import StrictEventEmitter from 'strict-event-emitter-types';
+import { isRight } from 'fp-ts/lib/Either';
+import Reporter from 'io-ts-reporters';
 
 import prettyMs = require('pretty-ms');
 
@@ -42,52 +44,17 @@ import * as apiKeys from './lib/api-keys';
 
 const disallowedHostConfigPatchFields = ['local_ip', 'local_port'];
 
-function validateLocalState(state: any): asserts state is TargetState['local'] {
-	if (state.name != null) {
-		if (!validation.isValidShortText(state.name)) {
-			throw new Error('Invalid device name');
-		}
-	}
-	if (state.apps == null || !validation.isValidAppsObject(state.apps)) {
-		throw new Error('Invalid apps');
-	}
-	if (state.config == null || !validation.isValidEnv(state.config)) {
-		throw new Error('Invalid device configuration');
-	}
-}
+function parseTargetState(state: unknown): TargetState {
+	const res = TargetState.decode(state);
 
-function validateDependentState(
-	state: any,
-): asserts state is TargetState['dependent'] {
-	if (
-		state.apps != null &&
-		!validation.isValidDependentAppsObject(state.apps)
-	) {
-		throw new Error('Invalid dependent apps');
+	if (isRight(res)) {
+		return res.right;
 	}
-	if (
-		state.devices != null &&
-		!validation.isValidDependentDevicesObject(state.devices)
-	) {
-		throw new Error('Invalid dependent devices');
-	}
-}
 
-function validateState(state: any): asserts state is TargetState {
-	if (!_.isObject(state)) {
-		throw new Error('State must be an object');
-	}
-	// these any typings seem unnecessary but the `isObject`
-	// call above tells typescript that state is of type
-	// `object` - which apparently does not allow any fields
-	// to be accessed
-	if (!_.isObject((state as any).local)) {
-		throw new Error('Local state must be an object');
-	}
-	validateLocalState((state as any).local);
-	if ((state as any).dependent != null) {
-		return validateDependentState((state as any).dependent);
-	}
+	const errors = [
+		'Invalid target state. Please ensure you are using the most up-to-date version of Balena CLI.',
+	].concat(Reporter.report(res));
+	throw new Error(errors.join('\n'));
 }
 
 // TODO (refactor): This shouldn't be here, and instead should be part of the other
@@ -188,7 +155,7 @@ function createDeviceStateRouter() {
 
 	router.get('/v1/device', async (_req, res) => {
 		try {
-			const state = await getStatus();
+			const state = await getCurrentForReport();
 			const stateToSend = _.pick(state.local, [
 				'api_port',
 				'ip_address',
@@ -502,7 +469,8 @@ export async function setTarget(target: TargetState, localSource?: boolean) {
 	}
 	failedUpdates = 0;
 
-	validateState(target);
+	// This will throw if target state is invalid
+	target = parseTargetState(target);
 
 	globalEventBus.getInstance().emit('targetStateChanged', target);
 
@@ -514,19 +482,9 @@ export async function setTarget(target: TargetState, localSource?: boolean) {
 			await deviceConfig.setTarget(target.local.config, trx);
 
 			if (localSource || apiEndpoint == null || apiEndpoint === '') {
-				await applicationManager.setTarget(
-					target.local.apps,
-					target.dependent,
-					'local',
-					trx,
-				);
+				await applicationManager.setTarget(target.local.apps, 'local', trx);
 			} else {
-				await applicationManager.setTarget(
-					target.local.apps,
-					target.dependent,
-					apiEndpoint,
-					trx,
-				);
+				await applicationManager.setTarget(target.local.apps, apiEndpoint, trx);
 			}
 		});
 	});
@@ -554,8 +512,12 @@ export function getTarget({
 	});
 }
 
-export async function getStatus(): Promise<DeviceStatus> {
-	const appsStatus = await applicationManager.getStatus();
+// This returns the current state of the device in (more or less)
+// the same format as the target state. This method,
+// getCurrent and getCurrentForComparison should probably get
+// merged into a single method
+export async function getCurrentForReport(): Promise<DeviceStatus> {
+	const appsStatus = await applicationManager.getLegacyState();
 	const theState: DeepPartial<DeviceStatus> = {
 		local: {},
 		dependent: {},

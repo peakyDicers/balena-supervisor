@@ -7,15 +7,21 @@ import * as db from '../db';
 // at all, and we can use the below type for both insertion and retrieval.
 export interface DatabaseApp {
 	name: string;
+	/**
+	 * @deprecated to be removed in target state v4
+	 */
 	releaseId?: number;
 	commit?: string;
+	/**
+	 * @deprecated to be removed in target state v4
+	 */
 	appId: number;
+	uuid: string;
 	services: string;
 	networks: string;
 	volumes: string;
 	source: string;
 }
-export type DatabaseApps = DatabaseApp[];
 
 /*
  * This module is a wrapper around the database fetching and retrieving of
@@ -26,7 +32,7 @@ export type DatabaseApps = DatabaseApp[];
  * accesses the target state for every log line. This can very quickly cause
  * serious memory problems and database connection timeouts.
  */
-let targetState: DatabaseApps | undefined;
+let targetState: DatabaseApp[] | undefined;
 
 export const initialized = (async () => {
 	await db.initialized;
@@ -53,7 +59,7 @@ export async function getTargetApp(
 	return _.find(targetState, (app) => app.appId === appId);
 }
 
-export async function getTargetApps(): Promise<DatabaseApps> {
+export async function getTargetApps(): Promise<DatabaseApp[]> {
 	if (targetState == null) {
 		const { apiEndpoint, localMode } = await config.getMany([
 			'apiEndpoint',
@@ -67,7 +73,7 @@ export async function getTargetApps(): Promise<DatabaseApps> {
 }
 
 export async function setTargetApps(
-	apps: DatabaseApps,
+	apps: DatabaseApp[],
 	trx?: db.Transaction,
 ): Promise<void> {
 	// We can't cache the value here, as it could be for a
@@ -75,6 +81,17 @@ export async function setTargetApps(
 	targetState = undefined;
 
 	await Promise.all(
-		apps.map((app) => db.upsertModel('app', app, { appId: app.appId }, trx)),
+		apps.map((app) =>
+			db.upsertModel(
+				'app',
+				app,
+				// With recently migrated supervisors target state apps
+				// stored on the db won't have an uuid so we need to revert to appId
+				// we will need a stepping stone OS release before v3 to get rid
+				// of this
+				app.uuid ? { uuid: app.uuid } : { appId: app.appId },
+				trx,
+			),
+		),
 	);
 }

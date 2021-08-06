@@ -29,11 +29,22 @@ interface FetchProgressEvent {
 
 export interface Image {
 	id?: number;
-	// image registry/repo@digest or registry/repo:tag
+	/**
+	 * image [registry/]repo@digest or [registry/]repo:tag
+	 */
 	name: string;
+	/**
+	 * @deprecated to be removed in target state v4
+	 */
 	appId: number;
+	/**
+	 * @deprecated to be removed in target state v4
+	 */
 	serviceId: number;
 	serviceName: string;
+	/**
+	 * @deprecated to be removed in target state v4
+	 */
 	// Id from balena api
 	imageId: number;
 	releaseId: number;
@@ -405,7 +416,14 @@ export async function cleanImageData(): Promise<void> {
 	await db.models('image').del().whereIn('id', ids);
 }
 
-export const getStatus = async () => {
+/**
+ * This and other current state methods will be replaced by ApplicationManager.getState, at which
+ * point the only place this will be used will be in the API endpoints
+ * once, the API moves to v3 or we update the endpoints to return uuids, we will
+ *  be able to get rid of this
+ *  @deprecated
+ */
+export const getLegacyState = async () => {
 	const images = (await getAvailable()).map((img) => ({
 		...img,
 		status: 'Downloaded' as Image['status'],

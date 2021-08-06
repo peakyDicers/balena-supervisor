@@ -175,7 +175,7 @@ const reportCurrentState = (): null => {
 	(async () => {
 		reportPending = true;
 		try {
-			const currentDeviceState = await deviceState.getStatus();
+			const currentDeviceState = await deviceState.getCurrentForReport();
 			// If hardwareMetrics is false, send null patch for system metrics to cloud API
 			const info = {
 				...((await config.get('hardwareMetrics'))

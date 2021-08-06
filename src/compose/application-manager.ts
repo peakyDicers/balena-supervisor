@@ -32,12 +32,12 @@ import { createV2Api } from '../device-api/v2';
 import { CompositionStep, generateStep } from './composition-steps';
 import {
 	InstancedAppState,
-	TargetApplications,
+	TargetApps,
+	TargetRelease,
 	DeviceStatus,
 	DeviceReportFields,
-	TargetState,
 } from '../types/state';
-import { checkTruthy, checkInt } from '../lib/validation';
+import { checkTruthy } from '../lib/validation';
 import { Proxyvisor } from '../proxyvisor';
 import * as updateLock from '../lib/update-lock';
 import { EventEmitter } from 'events';
@@ -463,13 +463,12 @@ export async function executeStep(
 
 // FIXME: This shouldn't be in this module
 export async function setTarget(
-	apps: TargetApplications,
-	dependent: TargetState['dependent'],
+	apps: TargetApps,
 	source: string,
 	maybeTrx?: Transaction,
 ) {
 	const setInTransaction = async (
-		$filteredApps: TargetApplications,
+		$filteredApps: TargetApps,
 		trx: Transaction,
 	) => {
 		await dbFormat.setApps($filteredApps, source, trx);
@@ -483,10 +482,9 @@ export async function setTarget(
 				// Currently this will only happen if the release
 				// which would replace it fails a contract
 				// validation check
-				_.map(apps, (_v, appId) => checkInt(appId)),
+				Object.values(apps).map(({ id: appId }) => appId),
 			)
 			.del();
-		await proxyvisor.setTargetInTransaction(dependent, trx);
 	};
 
 	// We look at the container contracts here, as if we
@@ -503,18 +501,26 @@ export async function setTarget(
 	const filteredApps = _.cloneDeep(apps);
 	_.each(
 		fulfilledContracts,
-		({ valid, unmetServices, fulfilledServices, unmetAndOptional }, appId) => {
+		(
+			{ valid, unmetServices, fulfilledServices, unmetAndOptional },
+			appUuid,
+		) => {
 			if (!valid) {
-				contractViolators[apps[appId].name] = unmetServices;
-				return delete filteredApps[appId];
+				contractViolators[apps[appUuid].name] = unmetServices;
+				return delete filteredApps[appUuid];
 			} else {
 				// valid is true, but we could still be missing
 				// some optional containers, and need to filter
 				// these out of the target state
-				filteredApps[appId].services = _.pickBy(
-					filteredApps[appId].services,
-					({ serviceName }) => fulfilledServices.includes(serviceName),
-				);
+				const [releaseUuid] = Object.keys(apps[appUuid].releases);
+				if (releaseUuid) {
+					const services = apps[appUuid].releases[releaseUuid].services ?? {};
+					apps[appUuid].releases[releaseUuid].services = _.pickBy(
+						services,
+						({ serviceName }) => fulfilledServices.includes(serviceName),
+					);
+				}
+
 				if (unmetAndOptional.length !== 0) {
 					return reportOptionalContainers(unmetAndOptional);
 				}
@@ -534,7 +540,7 @@ export async function setTarget(
 	}
 }
 
-export async function getTargetApps(): Promise<TargetApplications> {
+export async function getTargetApps(): Promise<TargetApps> {
 	const apps = await dbFormat.getTargetJson();
 
 	// Whilst it may make sense here to return the target state generated from the
@@ -543,17 +549,20 @@ export async function getTargetApps(): Promise<TargetApplications> {
 	// the instances throughout the supervisor. The target state is derived from
 	// the database entries anyway, so these two things should never be different
 	// (except for the volatile state)
-
-	_.each(apps, (app) => {
-		if (!_.isEmpty(app.services)) {
-			app.services = _.mapValues(app.services, (svc) => {
-				if (svc.imageId && targetVolatilePerImageId[svc.imageId] != null) {
-					return { ...svc, ...targetVolatilePerImageId };
-				}
-				return svc;
-			});
-		}
-	});
+	//
+	_.each(apps, (app) =>
+		// There should only be a single release but is a simpler option
+		_.each(app.releases, (release) => {
+			if (!_.isEmpty(release.services)) {
+				release.services = _.mapValues(release.services, (svc) => {
+					if (svc.imageId && targetVolatilePerImageId[svc.imageId] != null) {
+						return { ...svc, ...targetVolatilePerImageId };
+					}
+					return svc;
+				});
+			}
+		}),
+	);
 
 	return apps;
 }
@@ -578,19 +587,28 @@ export function getDependentTargets() {
 	return proxyvisor.getTarget();
 }
 
+/**
+ * This is only used by the API. Do not use as the use of serviceIds is getting
+ * deprecated
+ *
+ * @deprecated
+ */
 export async function serviceNameFromId(serviceId: number) {
 	// We get the target here as it shouldn't matter, and getting the target is cheaper
-	const targets = await getTargetApps();
-	for (const appId of Object.keys(targets)) {
-		const app = targets[parseInt(appId, 10)];
-		const service = _.find(app.services, { serviceId });
-		if (service?.serviceName === null) {
-			throw new InternalInconsistencyError(
-				`Could not find a service name for id: ${serviceId}`,
-			);
+	const targetApps = await getTargetApps();
+
+	for (const { releases } of Object.values(targetApps)) {
+		const [release] = Object.values(releases);
+		const services = release?.services ?? {};
+		const serviceName = Object.keys(services).find(
+			(svcName) => services[svcName].serviceId === serviceId,
+		);
+
+		if (!!serviceName) {
+			return serviceName;
 		}
-		return service!.serviceName;
 	}
+
 	throw new InternalInconsistencyError(
 		`Could not find a service for id: ${serviceId}`,
 	);
@@ -801,12 +819,17 @@ function reportOptionalContainers(serviceNames: string[]) {
 	);
 }
 
-// FIXME: This would be better to implement using the App class, and have each one
-// generate its status. For now we use the original from application-manager.coffee.
-export async function getStatus() {
+/**
+ * This will be replaced by ApplicationManager.getState, at which
+ * point the only place this will be used will be in the API endpoints
+ * once, the API moves to v3 or we update the endpoints to return uuids, we will
+ * be able to get rid of this
+ * @deprecated
+ */
+export async function getLegacyState() {
 	const [services, images] = await Promise.all([
-		serviceManager.getStatus(),
-		imageManager.getStatus(),
+		serviceManager.getLegacyState(),
+		imageManager.getLegacyState(),
 	]);
 
 	const apps: Dictionary<any> = {};
@@ -835,7 +858,7 @@ export async function getStatus() {
 		}
 		if (imageId == null) {
 			throw new InternalInconsistencyError(
-				`imageId not defined in ApplicationManager.getStatus: ${service}`,
+				`imageId not defined in ApplicationManager.getLegacyApplicationsState: ${service}`,
 			);
 		}
 		if (apps[appId].services[imageId] == null) {

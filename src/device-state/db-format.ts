@@ -8,13 +8,27 @@ import * as images from '../compose/images';
 
 import {
 	InstancedAppState,
-	TargetApplication,
-	TargetApplications,
-	TargetApplicationService,
+	TargetApp,
+	TargetApps,
+	TargetRelease,
+	TargetService,
 } from '../types/state';
-import { checkInt } from '../lib/validation';
 
 type InstancedApp = InstancedAppState[0];
+
+type DatabaseService = {
+	appId: string;
+	appUuid: string;
+	releaseId: number;
+	releaseUuid: string;
+	serviceName: string;
+	serviceId: number;
+	imageId: number;
+	image: string;
+
+	// Service configurations
+	[key: string]: any;
+};
 
 // Fetch and instance an app from the db. Throws if the requested appId cannot be found.
 // Currently this function does quite a bit more than it needs to as it pulls in a bunch
@@ -37,69 +51,102 @@ export async function getApps(): Promise<InstancedAppState> {
 }
 
 export async function setApps(
-	apps: { [appId: number]: TargetApplication },
+	apps: TargetApps,
 	source: string,
 	trx?: db.Transaction,
 ) {
-	const dbApps = await Promise.all(
-		Object.keys(apps).map(async (appIdStr) => {
-			const appId = checkInt(appIdStr)!;
+	const dbApps = Object.keys(apps).map((uuid) => {
+		const { id: appId, ...app } = apps[uuid];
 
-			const app = apps[appId];
-			const services = await Promise.all(
-				_.map(app.services, async (s, sId) => ({
-					...s,
-					appId,
-					releaseId: app.releaseId,
-					serviceId: checkInt(sId),
-					commit: app.commit,
-					image: await images.normalise(s.image),
-				})),
-			);
+		// Get the first uuid
+		const [commit] = Object.keys(app.releases);
+		const release = commit ? app.releases[commit] : ({} as TargetRelease);
+
+		const services = Object.keys(release.services ?? {}).map((serviceName) => {
+			const { id: releaseId } = release;
+			const { id: serviceId, image_id: imageId, ...service } = release.services[
+				serviceName
+			];
 
 			return {
+				...service,
 				appId,
-				source,
-				commit: app.commit,
-				name: app.name,
-				releaseId: app.releaseId,
-				services: JSON.stringify(services),
-				networks: JSON.stringify(app.networks ?? {}),
-				volumes: JSON.stringify(app.volumes ?? {}),
+				appUuid: uuid,
+				releaseId,
+				commit,
+				imageId,
+				serviceId,
+				serviceName,
+				image: images.normalise(service.image),
 			};
-		}),
-	);
+		});
+
+		return {
+			appId,
+			uuid,
+			source,
+			name: app.name,
+			...(commit && { releaseId: release.id, commit }),
+			services: JSON.stringify(services),
+			networks: JSON.stringify(release.networks ?? {}),
+			volumes: JSON.stringify(release.volumes ?? {}),
+		};
+	});
+
 	await targetStateCache.setTargetApps(dbApps, trx);
 }
 
-export async function getTargetJson(): Promise<TargetApplications> {
+/**
+ * Create target state from database state
+ */
+export async function getTargetJson(): Promise<TargetApps> {
 	const dbApps = await getDBEntry();
-	const apps: TargetApplications = {};
-	await Promise.all(
-		dbApps.map(async (app) => {
-			const parsedServices = JSON.parse(app.services);
 
-			const services = _(parsedServices)
-				.keyBy('serviceId')
-				.mapValues(
-					(svc: TargetApplicationService) =>
-						_.omit(svc, 'commit') as TargetApplicationService,
-				)
-				.value();
+	return dbApps
+		.map(({ source, uuid, releaseId, commit, ...app }): [string, TargetApp] => {
+			const services = (JSON.parse(app.services) as DatabaseService[])
+				.map(({ serviceName, serviceId, imageId, ...service }): [
+					string,
+					TargetService,
+				] => [
+					serviceName,
+					{
+						id: serviceId,
+						image_id: imageId,
+						..._.omit(service, ['appId', 'appUuid', 'commit', 'releaseId']),
+					} as TargetService,
+				])
+				// Map by serviceName
+				.reduce(
+					(svcs, [serviceName, s]) => ({
+						...svcs,
+						[serviceName]: s,
+					}),
+					{},
+				);
 
-			apps[app.appId] = {
-				// We remove the id as this is the supervisor database id, and the
-				// source is internal and isn't used except for when we fetch the target
-				// state
-				..._.omit(app, ['id', 'source']),
-				services,
-				networks: JSON.parse(app.networks),
-				volumes: JSON.parse(app.volumes),
-				// We can add this cast because it's required in the db
-			} as TargetApplication;
-		}),
-	);
-	return apps;
+			const releases = commit
+				? {
+						[commit]: {
+							id: releaseId,
+							services,
+							networks: JSON.parse(app.networks),
+							volumes: JSON.parse(app.volumes),
+						} as TargetRelease,
+				  }
+				: {};
+
+			return [
+				// TODO: not totally sure about this
+				uuid || String(app.appId),
+				{
+					id: app.appId,
+					name: app.name,
+					releases,
+				},
+			];
+		})
+		.reduce((apps, [uuid, app]) => ({ ...apps, [uuid]: app }), {});
 }
 
 function getDBEntry(): Promise<targetStateCache.DatabaseApp[]>;
