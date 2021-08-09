@@ -1,4 +1,21 @@
 - commits:
+    - subject: Rename managers getStatus metods as getLegacyStatus
+      hash: a783f8a7d09d0c1b74e752b0ef45af943f62f901
+      body: |
+        With the move to v3 target state and the move forward to remove
+        database ids from the supervisor, we want to ensure the ids are only
+        used for legacy support (such as within the API). This change renames
+        the methods and marks them as deprecated
+      footer:
+        Depends-on: '#1753'
+        depends-on: '#1753'
+        Change-type: patch
+        change-type: patch
+      author: Felipe Lalanne
+      nested: []
+  version: 12.10.3
+  date: 2021-08-09T23:41:31.730Z
+- commits:
     - subject: Removed fire emoji prefix for firewall logs.
       hash: 30c728fae23ee66f3c1612736bb0c300f0b0762d
       body: ''
